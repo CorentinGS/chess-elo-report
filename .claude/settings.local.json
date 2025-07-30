@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet restore:*)",
+      "Bash(dotnet build)",
+      "Bash(dotnet run:*)",
+      "Bash(del \"bin\\Debug\\net9.0\\players.db\")",
+      "Bash(rm:*)"
+    ],
+    "deny": []
+  }
+}
