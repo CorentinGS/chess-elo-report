@@ -1341,7 +1341,49 @@ let plotTimeControlAnalysis (countryStats: CountryTimeControlStats list) =
 
         let chart = [ rapidTrace; blitzTrace ] |> Chart.Plot |> Chart.WithLayout layout
         chart.Show()
-        printfn "\nTime control analysis chart created and opened in browser."
+        printfn "
+Time control analysis chart created and opened in browser."
+
+/// Analyzes and displays the percentage of female players by country.
+let analyzeFemaleRepresentation (config: AnalysisConfig) (players: Player array) =
+    printfn "
+
+--- ♀️ Female Player Representation Analysis ---"
+
+    let countryStats =
+        players
+        |> Array.groupBy (fun p -> p.Country)
+        |> Array.filter (fun (_, countryPlayers) -> countryPlayers.Length >= config.MinPlayersInCountry)
+        |> Array.map (fun (country, countryPlayers) ->
+            let totalPlayers = countryPlayers.Length
+            let femalePlayers = countryPlayers |> Array.filter (fun p -> p.Sex = "F") |> Array.length
+            let femalePercentage = if totalPlayers > 0 then (float femalePlayers / float totalPlayers) * 100.0 else 0.0
+            (country, femalePercentage, totalPlayers))
+        |> Array.sortByDescending (fun (_, perc, _) -> perc)
+
+    if countryStats.Length = 0 then
+        printfn "No countries with sufficient players found for this analysis."
+    else
+        printfn $"Analyzed %d{countryStats.Length} countries with at least %d{config.MinPlayersInCountry} players."
+
+        printfn "
+--- Top 10 Countries by Female Representation ---"
+        printfn "%-15s %-12s %-10s" "Country" "%% Female" "Total Players"
+        printfn "%s" (String.replicate 40 "-")
+        countryStats
+        |> Array.take 10
+        |> Array.iter (fun (country, perc, total) ->
+            printfn "%-15s %11.2f%% %-10d" country perc total)
+
+        printfn "
+--- Bottom 10 Countries by Female Representation ---"
+        printfn "%-15s %-12s %-10s" "Country" "%% Female" "Total Players"
+        printfn "%s" (String.replicate 40 "-")
+        countryStats
+        |> Array.rev
+        |> Array.take 10
+        |> Array.iter (fun (country, perc, total) ->
+            printfn "%-15s %11.2f%% %-10d" country perc total)
 
 let findStrategicOpponents
     (players: Player seq)
@@ -1609,9 +1651,30 @@ let analyzeCountryInDepth (config: AnalysisConfig) (allPlayers: Player array) (c
         else
             printfn "No age data available for this country."
 
-        // --- 5. Other Breakdowns ---
-        printfn "\n--- 📊 Other Demographics ---"
-        // Gender breakdown
+        // --- 5. Female Player Analysis ---
+        printfn "
+--- ♀️ Female Player Analysis ---"
+        let femalePlayers = countryPlayers |> Array.filter (fun p -> p.Sex = "F")
+        let globalFemalePlayers = allPlayers |> Array.filter (fun p -> p.Sex = "F")
+        let countryFemalePercentage = (float femalePlayers.Length / float countryPlayers.Length) * 100.0
+        let globalFemalePercentage = (float globalFemalePlayers.Length / float allPlayers.Length) * 100.0
+        printfn "• Female Representation: %.2f%% (World: %.2f%%)" countryFemalePercentage globalFemalePercentage
+
+        let femaleYouth = countryYouth |> Array.filter (fun (p,_) -> p.Sex = "F")
+        if femaleYouth.Length > 5 then
+            let femaleYouthAvgUr = femaleYouth |> Array.averageBy (fun (p,_) -> float p.UniversalRating)
+            let femaleYouthAvgGap = femaleYouth |> Array.averageBy (fun (p,_) -> float (p.UniversalRating - p.FideRating))
+            let globalFemaleYouth = globalYouth |> Array.filter (fun (p,_) -> p.Sex = "F")
+            let globalFemaleYouthAvgUr = globalFemaleYouth |> Array.averageBy (fun (p,_) -> float p.UniversalRating)
+            let globalFemaleYouthAvgGap = globalFemaleYouth |> Array.averageBy (fun (p,_) -> float (p.UniversalRating - p.FideRating))
+            printfn $"• Female Youth (U21) Avg UR: %.1f{femaleYouthAvgUr} (World: %.1f{globalFemaleYouthAvgUr})"
+            printfn $"• Female Youth (U21) Avg Gap: %+.1f{femaleYouthAvgGap} (World: %+.1f{globalFemaleYouthAvgGap})"
+        else
+            printfn "• Not enough female youth players for detailed analysis."
+
+        // --- 6. Other Breakdowns ---
+        printfn "
+--- 📊 Other Demographics ---"
         let femaleCount =
             countryPlayers |> Array.filter (fun p -> p.Sex = "F") |> Array.length
 
@@ -1628,8 +1691,8 @@ let analyzeCountryInDepth (config: AnalysisConfig) (allPlayers: Player array) (c
 
         let titleGroups =
             titled
-            |> Array.groupBy (fun p -> p.Title)
-            |> Array.sortBy (fun (title, _) -> title)
+            |> Array.groupBy _.Title
+            |> Array.sortBy fst
 
         printfn "• Titles:"
 
@@ -1662,6 +1725,9 @@ let main _ =
         printfn
             $"Configuration: Min Rating = {config.MinRating}, Min Players per Country = {config.MinPlayersInCountry}, Elite Percentage = {config.ElitePercentage * 100.0}%%"
 
+        let globalAvgUrGap = players |> Array.averageBy (fun p -> float (p.UniversalRating - p.FideRating))
+        printfn $"\n--- 🌎 Global Average Rating Gap (UR - FIDE): %+.1f{globalAvgUrGap} ---"
+
         // --- Execute and Display Analysis ---
         displayTopUniversalRatings players
         let countryData = analyzeAndDisplayCountryRatings config players
@@ -1685,6 +1751,9 @@ let main _ =
         let nationalTimeControlStats = analyzeNationalTimeControlStyles config players
         plotTimeControlAnalysis nationalTimeControlStats
 
+        // --- Female Representation Analysis ---
+        analyzeFemaleRepresentation config (Array.ofSeq players)
+        
         // --- In-Depth Country Analysis ---
         let countryCode = "FRA" // Example country code
         analyzeCountryInDepth config (Array.ofSeq players) countryCode
