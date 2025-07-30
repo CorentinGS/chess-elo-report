@@ -5,7 +5,14 @@
       "Bash(dotnet build)",
       "Bash(dotnet run:*)",
       "Bash(del \"bin\\Debug\\net9.0\\players.db\")",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(dotnet add package Deedle)",
+      "Bash(dotnet add package:*)",
+      "Bash(dotnet --version)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test)",
+      "Bash(timeout:*)",
+      "Bash(if exist players.db del players.db)"
     ],
     "deny": []
   }
