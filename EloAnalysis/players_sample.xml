@@ -1,0 +1,109 @@
+<!DOCTYPE playerslist [
+        <!ELEMENT playerslist (player)*>
+        <!ELEMENT player (fideid|name|country|sex|title|w_title|o_title|foa_title|rating|games|k|rapid_rating|rapid_games|rapid_k|blitz_rating|blitz_games|blitz_k|birthday|flag)*>
+        <!ELEMENT fideid (#PCDATA)>
+        <!ELEMENT name (#PCDATA)>
+        <!ELEMENT country (#PCDATA)>
+        <!ELEMENT sex (#PCDATA)>
+        <!ELEMENT title (#PCDATA)>
+        <!ELEMENT w_title (#PCDATA)>
+        <!ELEMENT o_title (#PCDATA)>
+        <!ELEMENT foa_title (#PCDATA)>
+        <!ELEMENT rating (#PCDATA)>
+        <!ELEMENT games (#PCDATA)>
+        <!ELEMENT k (#PCDATA)>
+        <!ELEMENT rapid_rating (#PCDATA)>
+        <!ELEMENT rapid_games (#PCDATA)>
+        <!ELEMENT rapid_k (#PCDATA)>
+        <!ELEMENT blitz_rating (#PCDATA)>
+        <!ELEMENT blitz_games (#PCDATA)>
+        <!ELEMENT blitz_k (#PCDATA)>
+        <!ELEMENT birthday (#PCDATA)>
+        <!ELEMENT flag (#PCDATA)>
+        ]>
+<playerslist>
+<player>
+<fideid>167105475</fideid>
+<name>-, -</name>
+<country>FID</country>
+<sex>M</sex>
+<title></title>
+<w_title></w_title>
+<o_title></o_title>
+<foa_title></foa_title>
+<rating>0</rating>
+<games>0</games>
+<k>0</k>
+<rapid_rating>0</rapid_rating>
+<rapid_games>0</rapid_games>
+<rapid_k>0</rapid_k>
+<blitz_rating>0</blitz_rating>
+<blitz_games>0</blitz_games>
+<blitz_k>0</blitz_k>
+<birthday>1999</birthday>
+<flag></flag>
+</player>
+<player>
+<fideid>10292519</fideid>
+<name>A A M Imtiaz, Chowdhury</name>
+<country>BAN</country>
+<sex>M</sex>
+<title></title>
+<w_title></w_title>
+<o_title></o_title>
+<foa_title></foa_title>
+<rating>0</rating>
+<games>0</games>
+<k>0</k>
+<rapid_rating>0</rapid_rating>
+<rapid_games>0</rapid_games>
+<rapid_k>0</rapid_k>
+<blitz_rating>0</blitz_rating>
+<blitz_games>0</blitz_games>
+<blitz_k>0</blitz_k>
+<birthday>1975</birthday>
+<flag></flag>
+</player>
+<player>
+<fideid>10688862</fideid>
+<name>A Abdel Maabod, Hoda</name>
+<country>EGY</country>
+<sex>F</sex>
+<title></title>
+<w_title></w_title>
+<o_title></o_title>
+<foa_title></foa_title>
+<rating>0</rating>
+<games>0</games>
+<k>0</k>
+<rapid_rating>0</rapid_rating>
+<rapid_games>0</rapid_games>
+<rapid_k>0</rapid_k>
+<blitz_rating>0</blitz_rating>
+<blitz_games>0</blitz_games>
+<blitz_k>0</blitz_k>
+<birthday>2009</birthday>
+<flag>w</flag>
+</player>
+<player>
+<fideid>33496722</fideid>
+<name>A Aman</name>
+<country>IND</country>
+<sex>M</sex>
+<title></title>
+<w_title></w_title>
+<o_title></o_title>
+<foa_title></foa_title>
+<rating>0</rating>
+<games>0</games>
+<k>0</k>
+<rapid_rating>0</rapid_rating>
+<rapid_games>0</rapid_games>
+<rapid_k>0</rapid_k>
+<blitz_rating>0</blitz_rating>
+<blitz_games>0</blitz_games>
+<blitz_k>0</blitz_k>
+<birthday>1996</birthday>
+<flag></flag>
+</player>
+</playerslist>
