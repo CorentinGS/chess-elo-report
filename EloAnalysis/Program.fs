@@ -71,6 +71,37 @@ type StrategicOpponentsResult =
       TopFavorableCountries: CountryInflation list
       TopOpponents: StrategicOpponent list }
 
+type AgeGroupStats =
+    { Age: int
+      PlayerCount: int
+      AvgFideRating: float
+      AvgUniversalRating: float
+      AvgRatingGap: float
+      MedianFideRating: float
+      MedianUniversalRating: float }
+
+type GenerationComparison =
+    { YouthCount: int
+      VeteranCount: int
+      YouthAvgGap: float
+      VeteranAvgGap: float
+      YouthAvgFide: float
+      VeteranAvgFide: float
+      YouthAvgUR: float
+      VeteranAvgUR: float
+      GapDifference: float }
+
+type ProdigyPlayer =
+    { FideId: int
+      Name: string
+      Age: int
+      Country: string
+      FideRating: int
+      UniversalRating: int
+      RatingGap: int
+      Title: string
+      WorldRank: int }
+
 type Player =
     { FideId: int
       Name: string
@@ -112,7 +143,7 @@ let loadFidePlayersAsync (config: AnalysisConfig) : Async<Map<int, Player>> =
                           Name = p.Name
                           Country = p.Country
                           Sex = p.Sex
-                          Title = string p.Title
+                          Title = p.Title.XElement.Value
                           WTitle = string p.WTitle
                           OTitle = string p.OTitle
                           FoaTitle = string p.FoaTitle
@@ -240,6 +271,15 @@ let calculateMedian (values: int list) : float =
             float (sorted[length / 2 - 1] + sorted[length / 2]) / 2.0
         else
             float sorted[length / 2]
+
+let calculateAge (birthday: int) : int option =
+    if birthday <= 0 then None
+    else
+        let currentYear = System.DateTime.Now.Year
+        let birthYear = birthday
+        if birthYear > 1900 && birthYear <= currentYear then
+            Some (currentYear - birthYear)
+        else None
 
 let analyzeAndDisplayCountryRatings (config: AnalysisConfig) (players: Player seq) : CountryStats list =
     printfn "\n\n--- 🌍 Advanced Country Rating Analysis (UR vs FIDE) ---\n"
@@ -510,7 +550,7 @@ let analyzeCountryRatingTiers (config: AnalysisConfig) (players: Player seq) : C
         let countryTierStats =
             validPlayers
             |> List.groupBy (fun p -> p.Country)
-            |> List.filter (fun (_, countryPlayers) -> countryPlayers.Length >= 10) // Min players per country (reduced from 50)
+            |> List.filter (fun (_, countryPlayers) -> countryPlayers.Length >= config.MinPlayersInCountry) // Min players per country (reduced from 50)
             |> List.collect (fun (country, countryPlayers) ->
                 ratingTiers
                 |> List.choose (fun (tierName, minRating, maxRatingOpt) ->
@@ -723,20 +763,215 @@ let plotCountryRatings (countryData: CountryStats list) =
         printfn
             "\nChart created and opened in browser. Showing top 10 and bottom 10 countries by elite average rating gap."
 
+let analyzePeakPerformanceAge (config: AnalysisConfig) (players: Player seq) : AgeGroupStats list =
+    printfn "\n\n--- 🎂 Peak Performance Age Analysis ---\n"
+    
+    let playersWithAge = 
+        players
+        |> Seq.choose (fun p ->
+            match calculateAge p.Birthday with
+            | Some age when age >= 10 && age <= 80 && p.FideRating > config.MinRating && p.UniversalRating > config.MinRating ->
+                Some (age, p.FideRating, p.UniversalRating, p.UniversalRating - p.FideRating)
+            | _ -> None)
+        |> List.ofSeq
+    
+    printfn $"Processing {playersWithAge.Length} players with valid ages and ratings > {config.MinRating}..."
+    
+    if playersWithAge.IsEmpty then
+        printfn "No players with valid age data found."
+        []
+    else
+        let ageGroups = 
+            playersWithAge
+            |> List.groupBy (fun (age, _, _, _) -> age)
+            |> List.filter (fun (_, players) -> players.Length >= 10) // Minimum players for meaningful analysis
+            |> List.map (fun (age, agePlayerData) ->
+                let fideRatings = agePlayerData |> List.map (fun (_, fide, _, _) -> fide)
+                let urRatings = agePlayerData |> List.map (fun (_, _, ur, _) -> ur)
+                let gaps = agePlayerData |> List.map (fun (_, _, _, gap) -> gap)
+                
+                { Age = age
+                  PlayerCount = agePlayerData.Length
+                  AvgFideRating = List.averageBy float fideRatings
+                  AvgUniversalRating = List.averageBy float urRatings
+                  AvgRatingGap = List.averageBy float gaps
+                  MedianFideRating = calculateMedian fideRatings
+                  MedianUniversalRating = calculateMedian urRatings })
+            |> List.sortBy (fun stats -> stats.Age)
+        
+        printfn $"Analysis complete for {ageGroups.Length} age groups with sufficient players.\n"
+        
+        printfn "%-4s %-8s | %-10s %-10s %-10s | %-10s %-10s" "Age" "Players" "Avg FIDE" "Avg UR" "Avg Gap" "Med FIDE" "Med UR"
+        printfn "%s" (String.replicate 80 "-")
+        
+        ageGroups
+        |> List.iter (fun stats ->
+            printfn $"%-4d{stats.Age} %-8d{stats.PlayerCount} | %-10.1f{stats.AvgFideRating} %-10.1f{stats.AvgUniversalRating} %-10.1f{stats.AvgRatingGap} | %-10.1f{stats.MedianFideRating} %-10.1f{stats.MedianUniversalRating}")
+        
+        if not ageGroups.IsEmpty then
+            let peakFideAge = ageGroups |> List.maxBy (fun s -> s.AvgFideRating)
+            let peakURAge = ageGroups |> List.maxBy (fun s -> s.AvgUniversalRating)
+            let mostAccurateAge = ageGroups |> List.minBy (fun s -> abs s.AvgRatingGap)
+            
+            printfn "\n--- Key Insights ---"
+            printfn $"• Peak FIDE Rating Age: {peakFideAge.Age} years (Avg: {peakFideAge.AvgFideRating:F1})"
+            printfn $"• Peak Universal Rating Age: {peakURAge.Age} years (Avg: {peakURAge.AvgUniversalRating:F1})"
+            printfn $"• Most Accurate Ratings Age: {mostAccurateAge.Age} years (Gap: {mostAccurateAge.AvgRatingGap:F1})"
+            
+            // Identify typical career phases
+            let youth = ageGroups |> List.filter (fun s -> s.Age <= 20)
+            let prime = ageGroups |> List.filter (fun s -> s.Age > 20 && s.Age <= 35)
+            let veteran = ageGroups |> List.filter (fun s -> s.Age > 35)
+            
+            if not youth.IsEmpty && not prime.IsEmpty && not veteran.IsEmpty then
+                let youthAvg = youth |> List.averageBy (fun s -> s.AvgFideRating)
+                let primeAvg = prime |> List.averageBy (fun s -> s.AvgFideRating)
+                let veteranAvg = veteran |> List.averageBy (fun s -> s.AvgFideRating)
+                
+                printfn $"\n--- Career Phase Analysis ---"
+                printfn $"• Youth (≤20): Avg FIDE {youthAvg:F1}"
+                printfn $"• Prime (21-35): Avg FIDE {primeAvg:F1}"
+                printfn $"• Veteran (>35): Avg FIDE {veteranAvg:F1}"
+        
+        ageGroups
+
+let analyzeYouthVsVeterans (config: AnalysisConfig) (players: Player seq) : GenerationComparison option =
+    printfn "\n\n--- 👶 Youth vs Veterans Analysis (Rating Accuracy) ---\n"
+    
+    let playersWithAge = 
+        players
+        |> Seq.choose (fun p ->
+            match calculateAge p.Birthday with
+            | Some age when p.FideRating > config.MinRating && p.UniversalRating > config.MinRating ->
+                Some (age, p.FideRating, p.UniversalRating, p.UniversalRating - p.FideRating)
+            | _ -> None)
+        |> List.ofSeq
+    
+    if playersWithAge.IsEmpty then
+        printfn "No players with valid age and rating data found."
+        None
+    else
+        let youth = playersWithAge |> List.filter (fun (age, _, _, _) -> age < 21)
+        let veterans = playersWithAge |> List.filter (fun (age, _, _, _) -> age > 40)
+        
+        if youth.IsEmpty || veterans.IsEmpty then
+            printfn "Insufficient data for youth or veteran groups."
+            None
+        else
+            let youthFide = youth |> List.map (fun (_, fide, _, _) -> fide)
+            let youthUR = youth |> List.map (fun (_, _, ur, _) -> ur)
+            let youthGaps = youth |> List.map (fun (_, _, _, gap) -> gap)
+            
+            let veteranFide = veterans |> List.map (fun (_, fide, _, _) -> fide)
+            let veteranUR = veterans |> List.map (fun (_, _, ur, _) -> ur)
+            let veteranGaps = veterans |> List.map (fun (_, _, _, gap) -> gap)
+            
+            let comparison = {
+                YouthCount = youth.Length
+                VeteranCount = veterans.Length
+                YouthAvgGap = List.averageBy float youthGaps
+                VeteranAvgGap = List.averageBy float veteranGaps
+                YouthAvgFide = List.averageBy float youthFide
+                VeteranAvgFide = List.averageBy float veteranFide
+                YouthAvgUR = List.averageBy float youthUR
+                VeteranAvgUR = List.averageBy float veteranUR
+                GapDifference = (List.averageBy float youthGaps) - (List.averageBy float veteranGaps)
+            }
+            
+            printfn $"Youth Players (<21): {comparison.YouthCount:N0} players"
+            printfn $"Veteran Players (>40): {comparison.VeteranCount:N0} players"
+            printfn ""
+            printfn "%-12s | %-10s %-10s %-10s" "Group" "Avg FIDE" "Avg UR" "Avg Gap"
+            printfn "%s" (String.replicate 50 "-")
+            let youthLabel = "Youth (<21)"
+            let veteranLabel = "Veterans (>40)"
+            printfn $"%-12s{youthLabel} | %-10.1f{comparison.YouthAvgFide} %-10.1f{comparison.YouthAvgUR} %-10.1f{comparison.YouthAvgGap}"
+            printfn $"%-12s{veteranLabel} | %-10.1f{comparison.VeteranAvgFide} %-10.1f{comparison.VeteranAvgUR} %-10.1f{comparison.VeteranAvgGap}"
+            
+            printfn "\n--- Analysis ---"
+            if abs comparison.GapDifference < 5.0 then
+                printfn $"• Gap Difference: {comparison.GapDifference:F1} - Ratings are similarly accurate across generations"
+            elif comparison.GapDifference > 0.0 then
+                printfn $"• Gap Difference: {comparison.GapDifference:F1} - Youth have MORE accurate ratings (higher UR relative to FIDE)"
+            else
+                printfn $"• Gap Difference: {comparison.GapDifference:F1} - Veterans have MORE accurate ratings (higher UR relative to FIDE)"
+            
+            if comparison.YouthAvgFide > comparison.VeteranAvgFide then
+                printfn $"• Youth average FIDE rating ({comparison.YouthAvgFide:F1}) is higher than veterans ({comparison.VeteranAvgFide:F1})"
+            else
+                printfn $"• Veterans average FIDE rating ({comparison.VeteranAvgFide:F1}) is higher than youth ({comparison.YouthAvgFide:F1})"
+            
+            Some comparison
+
+let generateProdigyWatchlist (config: AnalysisConfig) (players: Player seq) (maxAge: int) (topCount: int) : ProdigyPlayer list =
+    printfn $"\n\n--- 🌟 Prodigy Watchlist (Top {topCount} Players Under {maxAge}) ---\n"
+    
+    let prodigies = 
+        players
+        |> Seq.choose (fun p ->
+            match calculateAge p.Birthday with
+            | Some age when age < maxAge && p.FideRating > config.MinRating && p.UniversalRating > config.MinRating ->
+                Some { FideId = p.FideId
+                       Name = p.Name
+                       Age = age
+                       Country = p.Country
+                       FideRating = p.FideRating
+                       UniversalRating = p.UniversalRating
+                       RatingGap = p.UniversalRating - p.FideRating
+                       Title = p.Title
+                       WorldRank = p.WorldRank }
+            | _ -> None)
+        |> Seq.sortByDescending (fun p -> p.FideRating)
+        |> Seq.take topCount
+        |> List.ofSeq
+    
+    if prodigies.IsEmpty then
+        printfn $"No players under {maxAge} found with ratings > {config.MinRating}."
+        []
+    else
+        printfn $"Found {prodigies.Length} top young players:\n"
+        printfn "%-4s %-25s %-3s %-4s %-5s %-5s %-5s %-8s %-10s" "Rank" "Name" "Age" "Ctry" "FIDE" "UR" "Gap" "Title" "World Rank"
+        printfn "%s" (String.replicate 85 "-")
+        
+        prodigies
+        |> List.iteri (fun i p ->
+            let worldRankStr = if p.WorldRank > 0 then $"#{p.WorldRank}" else "Unranked"
+            printfn $"%-4d{i+1} %-25s{p.Name} %-3d{p.Age} %-4s{p.Country} %-5d{p.FideRating} %-5d{p.UniversalRating} %-5d{p.RatingGap} %-8s{p.Title} %-10s{worldRankStr}")
+        
+        let avgAge = prodigies |> List.averageBy (fun p -> float p.Age)
+        let avgFide = prodigies |> List.averageBy (fun p -> float p.FideRating)
+        let avgGap = prodigies |> List.averageBy (fun p -> float p.RatingGap)
+        
+        printfn $"\n--- Prodigy Statistics ---"
+        printfn $"• Average Age: {avgAge:F1} years"
+        printfn $"• Average FIDE Rating: {avgFide:F1}"
+        printfn $"• Average Rating Gap: {avgGap:F1}"
+        
+        let topCountries = 
+            prodigies 
+            |> List.groupBy (fun p -> p.Country)
+            |> List.sortByDescending (fun (_, players) -> players.Length)
+            |> List.take 3
+        
+        let countryList = topCountries |> List.map (fun (country, players) -> sprintf "%s (%d)" country players.Length) |> String.concat ", "
+        printfn $"• Top Countries: {countryList}"
+        
+        prodigies
+
 let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratingWindow: int) (minPlayersPerCountry: int) (topCountriesCount: int) (topOpponentsCount: int) : StrategicOpponentsResult option =
     let playersArray = players |> Array.ofSeq
     
     match playersArray |> Array.tryFind (fun p -> p.FideId = referencePlayerId) with
     | None -> 
-        printfn $"Player with FIDE ID {referencePlayerId} not found."
+        printfn $"Player with FIDE ID %d{referencePlayerId} not found."
         None
     | Some referencePlayer ->
-        printfn $"Analyzing strategic opponents for {referencePlayer.Name} (FIDE: {referencePlayer.FideRating}, UR: {referencePlayer.UniversalRating})"
+        printfn $"Analyzing strategic opponents for %s{referencePlayer.Name} (FIDE: %d{referencePlayer.FideRating}, UR: %d{referencePlayer.UniversalRating})"
         
         let targetMinRating = referencePlayer.FideRating
         let targetMaxRating = referencePlayer.FideRating + ratingWindow
         
-        printfn $"Target rating window: {targetMinRating} - {targetMaxRating}"
+        printfn $"Target rating window: %d{targetMinRating} - %d{targetMaxRating}"
         
         let validPlayers = 
             playersArray
@@ -772,9 +1007,9 @@ let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratin
                    TopFavorableCountries = []
                    TopOpponents = [] }
         else
-            printfn $"Found {topFavorableCountries.Length} favorable countries with overrated players:"
+            printfn "Found %d favorable countries with overrated players:" topFavorableCountries.Length
             topFavorableCountries 
-            |> List.iter (fun ci -> printfn $"  {ci.Country}: {ci.PlayerCount} players, avg gap: {ci.AvgRatingGap:F1}")
+            |> List.iter (fun ci -> printfn "  %s: %d players, avg gap: %.1f" ci.Country ci.PlayerCount ci.AvgRatingGap)
             
             let favorableCountries = topFavorableCountries |> List.map (fun ci -> ci.Country) |> Set.ofList
             
@@ -796,10 +1031,10 @@ let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratin
                 |> Array.take (min topOpponentsCount (Array.length (Array.filter (fun p -> favorableCountries.Contains(p.Country) && p.FideRating >= targetMinRating && p.FideRating <= targetMaxRating) validPlayers)))
                 |> List.ofArray
             
-            printfn $"Found {potentialOpponents.Length} strategic opponents in target rating range:"
+            printfn $"Found %d{potentialOpponents.Length} strategic opponents in target rating range:"
             potentialOpponents 
             |> List.iteri (fun i op -> 
-                printfn $"  {i+1}. {op.Name} ({op.Country}) - FIDE: {op.FideRating}, UR: {op.UniversalRating}, Gap: {op.RatingGap}")
+                printfn $"  %d{i+1}. %s{op.Name} (%s{op.Country}) - FIDE: %d{op.FideRating}, UR: %d{op.UniversalRating}, Gap: %d{op.RatingGap}")
             
             Some { ReferencePlayerId = referencePlayerId
                    TargetMinRating = targetMinRating
@@ -846,6 +1081,11 @@ let main _ =
         let countryTierData = analyzeCountryRatingTiers config players
         // plotCountryTierAnalysis countryTierData
 
+        // --- Age Analysis ---
+        let ageGroupData = analyzePeakPerformanceAge config players
+        let generationComparison = analyzeYouthVsVeterans config players
+        let prodigies = generateProdigyWatchlist config players 18 20
+
         // --- Strategic Opponent Analysis Example ---
         // Find a player to use as example (first player with FIDE rating > 2000)
         let examplePlayer = 
@@ -859,10 +1099,10 @@ let main _ =
             match strategicResult with
             | Some result ->
                 printfn "\n--- Summary ---"
-                printfn $"Reference Player: {player.Name} (ID: {result.ReferencePlayerId})"
-                printfn $"Target Rating Range: {result.TargetMinRating} - {result.TargetMaxRating}"
-                printfn $"Favorable Countries Found: {result.TopFavorableCountries.Length}"
-                printfn $"Strategic Opponents Found: {result.TopOpponents.Length}"
+                printfn $"Reference Player: %s{player.Name} (ID: %d{result.ReferencePlayerId})"
+                printfn $"Target Rating Range: %d{result.TargetMinRating} - %d{result.TargetMaxRating}"
+                printfn $"Favorable Countries Found: %d{result.TopFavorableCountries.Length}"
+                printfn $"Strategic Opponents Found: %d{result.TopOpponents.Length}"
             | None -> printfn "Strategic analysis failed."
         | None -> printfn "No suitable example player found for strategic analysis."
 
