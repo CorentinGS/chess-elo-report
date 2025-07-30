@@ -27,7 +27,17 @@ type CountryStats = {
     EliteStdDev: float
 }
 
-[<CLIMutable>]
+type RatingTierStats = {
+    TierName: string
+    MinRating: int
+    MaxRating: int option
+    PlayerCount: int
+    AvgGap: float
+    MedianGap: float
+    StdDev: float
+    AvgFideRating: float
+    AvgUrRating: float
+}
 type Player =
     { FideId: int
       Name: string
@@ -338,6 +348,143 @@ let analyzeAndDisplayCountryRatings (config: AnalysisConfig) (players: Player se
 
         countryData
 
+let analyzeRatingTiers (config: AnalysisConfig) (players: Player seq) : RatingTierStats list =
+    printfn "\n\n--- 📊 Rating Inflation/Deflation by Tier Analysis (UR vs FIDE) ---\n"
+    
+    let validPlayers =
+        players
+        |> Seq.filter (fun p ->
+            p.UniversalRating > config.MinRating &&
+            p.FideRating > config.MinRating)
+        |> Seq.toList
+    
+    printfn $"Processing {validPlayers.Length} players with valid ratings > {config.MinRating}..."
+    
+    if validPlayers.Length = 0 then
+        printfn "No players met the criteria. Analysis cannot continue."
+        []
+    else
+        let ratingTiers = [
+            ("2600+", 2600, None)
+            ("2500-2599", 2500, Some 2599)
+            ("2400-2499", 2400, Some 2499)
+            ("2300-2399", 2300, Some 2399)
+            ("2200-2299", 2200, Some 2299)
+            ("2100-2199", 2100, Some 2199)
+            ("2000-2099", 2000, Some 2099)
+            ("1900-1999", 1900, Some 1999)
+            ("1800-1899", 1800, Some 1899)
+            ("1700-1799", 1700, Some 1799)
+            ("1600-1699", 1600, Some 1699)
+            ("1500-1599", 1500, Some 1599)
+            ("1400-1499", 1400, Some 1499)
+            ("1300-1399", 1300, Some 1399)
+            ("1200-1299", 1200, Some 1299)
+        ]
+        
+        let tierStats =
+            ratingTiers
+            |> List.choose (fun (tierName, minRating, maxRatingOpt) ->
+                let playersInTier =
+                    validPlayers
+                    |> List.filter (fun p ->
+                        p.FideRating >= minRating &&
+                        (match maxRatingOpt with
+                         | Some maxRating -> p.FideRating <= maxRating
+                         | None -> true))
+                
+                if playersInTier.Length >= 10 then // Minimum players for meaningful analysis
+                    let gaps = playersInTier |> List.map (fun p -> p.UniversalRating - p.FideRating)
+                    let fideRatings = playersInTier |> List.map (fun p -> p.FideRating)
+                    let urRatings = playersInTier |> List.map (fun p -> p.UniversalRating)
+                    
+                    let avgGap = List.averageBy float gaps
+                    let medianGap = calculateMedian gaps
+                    let variance = gaps |> List.averageBy (fun g -> (float g - avgGap) ** 2.0)
+                    let stdDev = sqrt variance
+                    let avgFideRating = List.averageBy float fideRatings
+                    let avgUrRating = List.averageBy float urRatings
+                    
+                    Some {
+                        TierName = tierName
+                        MinRating = minRating
+                        MaxRating = maxRatingOpt
+                        PlayerCount = playersInTier.Length
+                        AvgGap = avgGap
+                        MedianGap = medianGap
+                        StdDev = stdDev
+                        AvgFideRating = avgFideRating
+                        AvgUrRating = avgUrRating
+                    }
+                else
+                    None)
+        
+        printfn $"Analysis complete for {tierStats.Length} rating tiers with sufficient players.\n"
+        printfn "%-12s %-10s | %-10s %-10s %-10s | %-10s %-10s %-10s" 
+                "Tier" "Players" "Avg Gap" "Med Gap" "Std Dev" "Avg FIDE" "Avg UR" "Deflation%"
+        printfn "%s" (String.replicate 95 "-")
+        
+        tierStats
+        |> List.iter (fun stats ->
+            let deflationPercent = (stats.AvgGap / stats.AvgFideRating) * 100.0
+            printfn $"%-12s{stats.TierName} %-10d{stats.PlayerCount} | %-+10.1f{stats.AvgGap} %-+10.1f{stats.MedianGap} %-10.1f{stats.StdDev} | %-10.1f{stats.AvgFideRating} %-10.1f{stats.AvgUrRating} %-+10.2f{deflationPercent}%%")
+        
+        if not tierStats.IsEmpty then
+            let mostDeflated = tierStats |> List.maxBy (fun s -> s.AvgGap)
+            let leastDeflated = tierStats |> List.minBy (fun s -> s.AvgGap)
+            let mostInconsistent = tierStats |> List.maxBy (fun s -> s.StdDev)
+            
+            printfn "\n--- Key Insights ---"
+            printfn "• Positive Gap = Universal Rating > FIDE Rating (suggests FIDE rating is 'deflated')"
+            printfn "• Deflation%% = (Gap / Avg FIDE Rating) × 100"
+            printfn $"• Most Deflated Tier: %s{mostDeflated.TierName} (Avg Gap: %+.1f{mostDeflated.AvgGap}, %.2f{(mostDeflated.AvgGap / mostDeflated.AvgFideRating) * 100.0}%% deflation)"
+            printfn $"• Least Deflated Tier: %s{leastDeflated.TierName} (Avg Gap: %+.1f{leastDeflated.AvgGap}, %.2f{(leastDeflated.AvgGap / leastDeflated.AvgFideRating) * 100.0}%% deflation)"
+            printfn $"• Most Inconsistent: %s{mostInconsistent.TierName} (Std Dev: %.1f{mostInconsistent.StdDev})"
+            
+            let highTierAvg = tierStats |> List.filter (fun s -> s.MinRating >= 2400) |> List.averageBy (fun s -> s.AvgGap)
+            let midTierAvg = tierStats |> List.filter (fun s -> s.MinRating >= 2000 && s.MinRating < 2400) |> List.averageBy (fun s -> s.AvgGap)
+            let lowTierAvg = tierStats |> List.filter (fun s -> s.MinRating < 2000) |> List.averageBy (fun s -> s.AvgGap)
+            
+            printfn $"\n--- Tier Group Analysis ---"
+            printfn $"• High Tier (2400+) Avg Gap: %+.1f{highTierAvg}"
+            printfn $"• Mid Tier (2000-2399) Avg Gap: %+.1f{midTierAvg}" 
+            printfn $"• Low Tier (<2000) Avg Gap: %+.1f{lowTierAvg}"
+            
+            if highTierAvg > midTierAvg then
+                printfn "• Result: FIDE ratings appear MORE deflated for higher-rated players"
+            else
+                printfn "• Result: FIDE ratings appear LESS deflated for higher-rated players"
+        
+        tierStats
+
+let plotRatingTiers (tierStats: RatingTierStats list) =
+    if tierStats.Length = 0 then
+        printfn "No tier data available for plotting."
+    else
+        let tierNames = tierStats |> List.map (fun s -> s.TierName)
+        let avgGaps = tierStats |> List.map (fun s -> s.AvgGap)
+        let medianGaps = tierStats |> List.map (fun s -> s.MedianGap)
+        let playerCounts = tierStats |> List.map (fun s -> float s.PlayerCount)
+        
+        let avgGapTrace =
+            Bar(x = tierNames, y = avgGaps, name = "Average Gap", marker = Marker(color = "rgba(55, 128, 191, 0.8)"))
+            
+        let medianGapTrace =
+            Bar(x = tierNames, y = medianGaps, name = "Median Gap", marker = Marker(color = "rgba(255, 128, 64, 0.8)"))
+        
+        let layout =
+            Layout(
+                title = "Rating Deflation/Inflation by Rating Tier (UR vs FIDE)",
+                xaxis = Xaxis(title = "Rating Tier", tickangle = -45),
+                yaxis = Yaxis(title = "Rating Gap (UR - FIDE)"),
+                barmode = "group",
+                showlegend = true
+            )
+        
+        let chart = [ avgGapTrace; medianGapTrace ] |> Chart.Plot |> Chart.WithLayout layout
+        chart.Show()
+        printfn "\nTier analysis chart created and opened in browser."
+
 let plotCountryRatings (countryData: CountryStats list) =
     if countryData.Length = 0 then
         printfn "No data available for plotting."
@@ -385,7 +532,7 @@ let main _ =
             MinRating = 1200
             MinPlayersInCountry = 500
             ElitePercentage = 0.10
-            CachedPlayersCsvPath = "players_cache.csv"
+            CachedPlayersCsvPath = "players_caches.csv"
             PlayersXmlPath = "players.xml"
             RatingsCsvPath = "ratings.csv"
         }
@@ -408,6 +555,10 @@ let main _ =
         displayTopUniversalRatings players
         let countryData = analyzeAndDisplayCountryRatings config players
         plotCountryRatings countryData
+        
+        // --- Rating Tier Analysis ---
+        let tierData = analyzeRatingTiers config players
+        plotRatingTiers tierData
 
         printfn "Data processing completed successfully!"
         0
