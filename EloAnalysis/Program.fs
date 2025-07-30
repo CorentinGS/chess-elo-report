@@ -50,6 +50,27 @@ type CountryTierStats =
       AvgUrRating: float
       DeflationPercent: float }
 
+type CountryInflation =
+    { Country: string
+      PlayerCount: int
+      AvgRatingGap: float }
+
+type StrategicOpponent =
+    { FideId: int
+      Name: string
+      Country: string
+      FideRating: int
+      UniversalRating: int
+      RatingGap: int
+      Title: string }
+
+type StrategicOpponentsResult =
+    { ReferencePlayerId: int
+      TargetMinRating: int
+      TargetMaxRating: int
+      TopFavorableCountries: CountryInflation list
+      TopOpponents: StrategicOpponent list }
+
 type Player =
     { FideId: int
       Name: string
@@ -702,6 +723,90 @@ let plotCountryRatings (countryData: CountryStats list) =
         printfn
             "\nChart created and opened in browser. Showing top 10 and bottom 10 countries by elite average rating gap."
 
+let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratingWindow: int) (minPlayersPerCountry: int) (topCountriesCount: int) (topOpponentsCount: int) : StrategicOpponentsResult option =
+    let playersArray = players |> Array.ofSeq
+    
+    match playersArray |> Array.tryFind (fun p -> p.FideId = referencePlayerId) with
+    | None -> 
+        printfn $"Player with FIDE ID {referencePlayerId} not found."
+        None
+    | Some referencePlayer ->
+        printfn $"Analyzing strategic opponents for {referencePlayer.Name} (FIDE: {referencePlayer.FideRating}, UR: {referencePlayer.UniversalRating})"
+        
+        let targetMinRating = referencePlayer.FideRating
+        let targetMaxRating = referencePlayer.FideRating + ratingWindow
+        
+        printfn $"Target rating window: {targetMinRating} - {targetMaxRating}"
+        
+        let validPlayers = 
+            playersArray
+            |> Array.filter (fun p -> 
+                p.Country <> "" 
+                && p.FideId <> referencePlayerId
+                && p.FideRating > 0 
+                && p.UniversalRating > 0)
+        
+        let countryInflation = 
+            validPlayers
+            |> Array.groupBy (fun p -> p.Country)
+            |> Array.filter (fun (_, players) -> players.Length >= minPlayersPerCountry)
+            |> Array.map (fun (country, countryPlayers) ->
+                let avgGap = countryPlayers |> Array.averageBy (fun p -> float (p.UniversalRating - p.FideRating))
+                { Country = country
+                  PlayerCount = countryPlayers.Length  
+                  AvgRatingGap = avgGap })
+            |> Array.filter (fun ci -> ci.AvgRatingGap < 0.0)
+            |> Array.sortBy (fun ci -> ci.AvgRatingGap)
+        
+        let favorableCountriesCount = countryInflation.Length
+        let topFavorableCountries = 
+            countryInflation
+            |> Array.take (min topCountriesCount favorableCountriesCount)
+            |> List.ofArray
+        
+        if topFavorableCountries.IsEmpty then
+            printfn "No countries found with negative rating gaps (overrated federations)."
+            Some { ReferencePlayerId = referencePlayerId
+                   TargetMinRating = targetMinRating
+                   TargetMaxRating = targetMaxRating  
+                   TopFavorableCountries = []
+                   TopOpponents = [] }
+        else
+            printfn $"Found {topFavorableCountries.Length} favorable countries with overrated players:"
+            topFavorableCountries 
+            |> List.iter (fun ci -> printfn $"  {ci.Country}: {ci.PlayerCount} players, avg gap: {ci.AvgRatingGap:F1}")
+            
+            let favorableCountries = topFavorableCountries |> List.map (fun ci -> ci.Country) |> Set.ofList
+            
+            let potentialOpponents = 
+                validPlayers
+                |> Array.filter (fun p -> 
+                    favorableCountries.Contains(p.Country)
+                    && p.FideRating >= targetMinRating 
+                    && p.FideRating <= targetMaxRating)
+                |> Array.map (fun p -> 
+                    { FideId = p.FideId
+                      Name = p.Name
+                      Country = p.Country
+                      FideRating = p.FideRating
+                      UniversalRating = p.UniversalRating
+                      RatingGap = p.UniversalRating - p.FideRating
+                      Title = p.Title })
+                |> Array.sortBy (fun op -> op.RatingGap)
+                |> Array.take (min topOpponentsCount (Array.length (Array.filter (fun p -> favorableCountries.Contains(p.Country) && p.FideRating >= targetMinRating && p.FideRating <= targetMaxRating) validPlayers)))
+                |> List.ofArray
+            
+            printfn $"Found {potentialOpponents.Length} strategic opponents in target rating range:"
+            potentialOpponents 
+            |> List.iteri (fun i op -> 
+                printfn $"  {i+1}. {op.Name} ({op.Country}) - FIDE: {op.FideRating}, UR: {op.UniversalRating}, Gap: {op.RatingGap}")
+            
+            Some { ReferencePlayerId = referencePlayerId
+                   TargetMinRating = targetMinRating
+                   TargetMaxRating = targetMaxRating
+                   TopFavorableCountries = topFavorableCountries  
+                   TopOpponents = potentialOpponents }
+
 [<EntryPoint>]
 let main _ =
     try
@@ -741,6 +846,25 @@ let main _ =
         let countryTierData = analyzeCountryRatingTiers config players
         // plotCountryTierAnalysis countryTierData
 
+        // --- Strategic Opponent Analysis Example ---
+        // Find a player to use as example (first player with FIDE rating > 2000)
+        let examplePlayer = 
+            players 
+            |> Array.tryFind (fun p -> p.FideId = 26065843)
+        
+        match examplePlayer with
+        | Some player ->
+            printfn $"\n\n--- 🎯 Strategic Opponent Analysis Example ---"
+            let strategicResult = findStrategicOpponents players player.FideId 150 50 5 5
+            match strategicResult with
+            | Some result ->
+                printfn "\n--- Summary ---"
+                printfn $"Reference Player: {player.Name} (ID: {result.ReferencePlayerId})"
+                printfn $"Target Rating Range: {result.TargetMinRating} - {result.TargetMaxRating}"
+                printfn $"Favorable Countries Found: {result.TopFavorableCountries.Length}"
+                printfn $"Strategic Opponents Found: {result.TopOpponents.Length}"
+            | None -> printfn "Strategic analysis failed."
+        | None -> printfn "No suitable example player found for strategic analysis."
 
         printfn "Data processing completed successfully!"
         0
