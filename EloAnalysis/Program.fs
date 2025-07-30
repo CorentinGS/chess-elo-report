@@ -102,6 +102,30 @@ type ProdigyPlayer =
       Title: string
       WorldRank: int }
 
+type TimeControlSpecialist =
+    { FideId: int
+      Name: string
+      Country: string
+      ClassicalRating: int
+      RapidRating: int
+      BlitzRating: int
+      RapidDiff: int // Rapid - Classical
+      BlitzDiff: int // Blitz - Classical
+      SpecializationType: string
+      Title: string }
+
+type CountryTimeControlStats =
+    { Country: string
+      PlayerCount: int
+      AvgClassical: float
+      AvgRapid: float
+      AvgBlitz: float
+      AvgRapidDiff: float
+      AvgBlitzDiff: float
+      RapidSpecialists: int
+      BlitzSpecialists: int
+      ClassicalSpecialists: int }
+
 type Player =
     { FideId: int
       Name: string
@@ -958,6 +982,187 @@ let generateProdigyWatchlist (config: AnalysisConfig) (players: Player seq) (max
         
         prodigies
 
+let identifyTimeControlSpecialists (config: AnalysisConfig) (players: Player seq) (topCount: int) : TimeControlSpecialist list * TimeControlSpecialist list * TimeControlSpecialist list =
+    printfn "\n\n--- ⚡ Time Control Specialists Analysis ---\n"
+    
+    let validPlayers = 
+        players
+        |> Seq.filter (fun p -> 
+            p.FideRating >= config.MinRating 
+            && p.FideRapidRating >= config.MinRating 
+            && p.FideBlitzRating >= config.MinRating
+            && p.FideRating > 0 
+            && p.FideRapidRating > 0 
+            && p.FideBlitzRating > 0)
+        |> Seq.map (fun p ->
+            let rapidDiff = p.FideRapidRating - p.FideRating
+            let blitzDiff = p.FideBlitzRating - p.FideRating
+            
+            let specialization = 
+                if abs rapidDiff > abs blitzDiff && rapidDiff > 50 then "Rapid Specialist"
+                elif abs blitzDiff > abs rapidDiff && blitzDiff > 50 then "Blitz Specialist"
+                elif p.FideRating > p.FideRapidRating && p.FideRating > p.FideBlitzRating && (p.FideRating - max p.FideRapidRating p.FideBlitzRating) > 50 then "Classical Specialist"
+                else "Balanced"
+            
+            { FideId = p.FideId
+              Name = p.Name
+              Country = p.Country
+              ClassicalRating = p.FideRating
+              RapidRating = p.FideRapidRating
+              BlitzRating = p.FideBlitzRating
+              RapidDiff = rapidDiff
+              BlitzDiff = blitzDiff
+              SpecializationType = specialization
+              Title = p.Title })
+        |> List.ofSeq
+    
+    printfn $"Processing %d{validPlayers.Length} players with valid ratings across all time controls..."
+    
+    let rapidSpecialists = 
+        validPlayers
+        |> List.filter (fun p -> p.SpecializationType = "Rapid Specialist")
+        |> List.sortByDescending (fun p -> p.RapidDiff)
+        |> List.take (min topCount (validPlayers |> List.filter (fun p -> p.SpecializationType = "Rapid Specialist") |> List.length))
+    
+    let blitzSpecialists = 
+        validPlayers
+        |> List.filter (fun p -> p.SpecializationType = "Blitz Specialist")
+        |> List.sortByDescending (fun p -> p.BlitzDiff)
+        |> List.take (min topCount (validPlayers |> List.filter (fun p -> p.SpecializationType = "Blitz Specialist") |> List.length))
+    
+    let classicalSpecialists = 
+        validPlayers
+        |> List.filter (fun p -> p.SpecializationType = "Classical Specialist")
+        |> List.sortByDescending (fun p -> p.ClassicalRating - max p.RapidRating p.BlitzRating)
+        |> List.take (min topCount (validPlayers |> List.filter (fun p -> p.SpecializationType = "Classical Specialist") |> List.length))
+    
+    printfn $"\n--- TOP %d{topCount} RAPID SPECIALISTS ---"
+    printfn "%-25s %-4s %-6s %-6s %-6s %-5s %-8s" "Name" "Ctry" "Class" "Rapid" "Blitz" "R-Diff" "Title"
+    printfn "%s" (String.replicate 70 "-")
+    rapidSpecialists
+    |> List.iteri (fun i p ->
+        printfn $"%-25s{p.Name} %-4s{p.Country} %-6d{p.ClassicalRating} %-6d{p.RapidRating} %-6d{p.BlitzRating} +%-4d{p.RapidDiff} %-8s{p.Title}")
+    
+    printfn $"\n--- TOP %d{topCount} BLITZ SPECIALISTS ---"
+    printfn "%-25s %-4s %-6s %-6s %-6s %-5s %-8s" "Name" "Ctry" "Class" "Rapid" "Blitz" "B-Diff" "Title"
+    printfn "%s" (String.replicate 70 "-")
+    blitzSpecialists
+    |> List.iteri (fun i p ->        printfn $"%-25s{p.Name} %-4s{p.Country} %-6d{p.ClassicalRating} %-6d{p.RapidRating} %-6d{p.BlitzRating} +%-4d{p.BlitzDiff} %-8s{p.Title}")
+    
+    printfn $"\n--- TOP %d{topCount} CLASSICAL SPECIALISTS ---"
+    printfn "%-25s %-4s %-6s %-6s %-6s %-5s %-8s" "Name" "Ctry" "Class" "Rapid" "Blitz" "C-Adv" "Title"
+    printfn "%s" (String.replicate 70 "-")
+    classicalSpecialists
+    |> List.iteri (fun i p ->
+        let classicalAdv = p.ClassicalRating - max p.RapidRating p.BlitzRating
+        printfn $"%-25s{p.Name} %-4s{p.Country} %-6d{p.ClassicalRating} %-6d{p.RapidRating} %-6d{p.BlitzRating} +%-4d{classicalAdv} %-8s{p.Title}")
+    
+    let totalSpecialists = rapidSpecialists.Length + blitzSpecialists.Length + classicalSpecialists.Length
+    let balanced = validPlayers.Length - (validPlayers |> List.filter (fun p -> p.SpecializationType <> "Balanced") |> List.length)
+    
+    printfn "\n--- SPECIALIZATION SUMMARY ---"
+    printfn $"• Total Players Analyzed: %d{validPlayers.Length}"
+    printfn "• Rapid Specialists: %d" (validPlayers |> List.filter (fun p -> p.SpecializationType = "Rapid Specialist") |> List.length)
+    printfn "• Blitz Specialists: %d" (validPlayers |> List.filter (fun p -> p.SpecializationType = "Blitz Specialist") |> List.length)
+    printfn "• Classical Specialists: %d" (validPlayers |> List.filter (fun p -> p.SpecializationType = "Classical Specialist") |> List.length)
+    printfn $"• Balanced Players: %d{balanced}"
+    
+    (rapidSpecialists, blitzSpecialists, classicalSpecialists)
+
+let analyzeNationalTimeControlStyles (config: AnalysisConfig) (players: Player seq) : CountryTimeControlStats list =
+    printfn "\n\n--- 🌍 National Time Control Analysis ---\n"
+    
+    let validPlayers = 
+        players
+        |> Seq.filter (fun p -> 
+            p.Country <> ""
+            && p.FideRating >= config.MinRating 
+            && p.FideRapidRating >= config.MinRating 
+            && p.FideBlitzRating >= config.MinRating
+            && p.FideRating > 0 
+            && p.FideRapidRating > 0 
+            && p.FideBlitzRating > 0)
+        |> List.ofSeq
+    
+    let countryStats = 
+        validPlayers
+        |> List.groupBy (fun p -> p.Country)
+        |> List.filter (fun (_, players) -> players.Length >= config.MinPlayersInCountry) // Minimum players for meaningful analysis
+        |> List.map (fun (country, countryPlayers) ->
+            let classicalRatings = countryPlayers |> List.map (fun p -> p.FideRating)
+            let rapidRatings = countryPlayers |> List.map (fun p -> p.FideRapidRating)
+            let blitzRatings = countryPlayers |> List.map (fun p -> p.FideBlitzRating)
+            let rapidDiffs = countryPlayers |> List.map (fun p -> p.FideRapidRating - p.FideRating)
+            let blitzDiffs = countryPlayers |> List.map (fun p -> p.FideBlitzRating - p.FideRating)
+            
+            let rapidSpecCount = countryPlayers |> List.filter (fun p -> (p.FideRapidRating - p.FideRating) > 50) |> List.length
+            let blitzSpecCount = countryPlayers |> List.filter (fun p -> (p.FideBlitzRating - p.FideRating) > 50) |> List.length
+            let classicalSpecCount = countryPlayers |> List.filter (fun p -> p.FideRating > p.FideRapidRating && p.FideRating > p.FideBlitzRating && (p.FideRating - max p.FideRapidRating p.FideBlitzRating) > 50) |> List.length
+            
+            { Country = country
+              PlayerCount = countryPlayers.Length
+              AvgClassical = List.averageBy float classicalRatings
+              AvgRapid = List.averageBy float rapidRatings
+              AvgBlitz = List.averageBy float blitzRatings
+              AvgRapidDiff = List.averageBy float rapidDiffs
+              AvgBlitzDiff = List.averageBy float blitzDiffs
+              RapidSpecialists = rapidSpecCount
+              BlitzSpecialists = blitzSpecCount
+              ClassicalSpecialists = classicalSpecCount })
+        |> List.sortByDescending (fun s -> s.AvgBlitzDiff + s.AvgRapidDiff) // Countries best at speed chess relative to classical
+    
+    printfn $"Processing %d{countryStats.Length} countries with at least 50 players across all time controls..."
+    printfn ""
+    printfn "%-12s %-6s | %-6s %-6s %-6s | %-6s %-6s | %-4s %-4s %-4s" "Country" "Players" "Class" "Rapid" "Blitz" "R-Diff" "B-Diff" "R-Sp" "B-Sp" "C-Sp"
+    printfn "%s" (String.replicate 85 "-")
+    
+    countryStats
+    |> List.iter (fun stats ->
+        printfn $"%-12s{stats.Country} %-6d{stats.PlayerCount} | %-6.0f{stats.AvgClassical} %-6.0f{stats.AvgRapid} %-6.0f{stats.AvgBlitz} | %+6.1f{stats.AvgRapidDiff} %+6.1f{stats.AvgBlitzDiff} | %-4d{stats.RapidSpecialists} %-4d{stats.BlitzSpecialists} %-4d{stats.ClassicalSpecialists}")
+    
+    if not countryStats.IsEmpty then
+        let bestSpeedCountry = countryStats |> List.maxBy (fun s -> s.AvgBlitzDiff + s.AvgRapidDiff)
+        let bestClassicalCountry = countryStats |> List.minBy (fun s -> s.AvgBlitzDiff + s.AvgRapidDiff)
+        let mostRapidSpecialists = countryStats |> List.maxBy (fun s -> float s.RapidSpecialists / float s.PlayerCount)
+        let mostBlitzSpecialists = countryStats |> List.maxBy (fun s -> float s.BlitzSpecialists / float s.PlayerCount)
+        
+        printfn "\n--- KEY INSIGHTS ---"
+        printfn $"• Best Speed Chess Nation: %s{bestSpeedCountry.Country} (Combined diff: %+.1f{bestSpeedCountry.AvgRapidDiff + bestSpeedCountry.AvgBlitzDiff})"
+        printfn $"• Strongest Classical Nation: %s{bestClassicalCountry.Country} (Combined diff: %+.1f{bestClassicalCountry.AvgRapidDiff + bestClassicalCountry.AvgBlitzDiff})"
+        printfn "• Most Rapid-Oriented: %s (%.1f%% rapid specialists)" mostRapidSpecialists.Country (100.0 * float mostRapidSpecialists.RapidSpecialists / float mostRapidSpecialists.PlayerCount)
+        printfn "• Most Blitz-Oriented: %s (%.1f%% blitz specialists)" mostBlitzSpecialists.Country (100.0 * float mostBlitzSpecialists.BlitzSpecialists / float mostBlitzSpecialists.PlayerCount)
+    
+    countryStats
+
+let plotTimeControlAnalysis (countryStats: CountryTimeControlStats list) =
+    if countryStats.Length = 0 then
+        printfn "No time control data available for plotting."
+    else
+        let top15 = countryStats |> List.take (min 15 countryStats.Length)
+        
+        let countries = top15 |> List.map (fun s -> s.Country)
+        let rapidDiffs = top15 |> List.map (fun s -> s.AvgRapidDiff)
+        let blitzDiffs = top15 |> List.map (fun s -> s.AvgBlitzDiff)
+        
+        let rapidTrace = 
+            Bar(x = countries, y = rapidDiffs, name = "Rapid Advantage", marker = Marker(color = "rgba(54, 162, 235, 0.8)"))
+        
+        let blitzTrace = 
+            Bar(x = countries, y = blitzDiffs, name = "Blitz Advantage", marker = Marker(color = "rgba(255, 99, 132, 0.8)"))
+        
+        let layout = 
+            Layout(
+                title = "National Time Control Specializations (Top 15 Speed Chess Nations)",
+                xaxis = Xaxis(title = "Country", tickangle = -45),
+                yaxis = Yaxis(title = "Rating Advantage vs Classical"),
+                barmode = "group",
+                showlegend = true
+            )
+        
+        let chart = [rapidTrace; blitzTrace] |> Chart.Plot |> Chart.WithLayout layout
+        chart.Show()
+        printfn "\nTime control analysis chart created and opened in browser."
+
 let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratingWindow: int) (minPlayersPerCountry: int) (topCountriesCount: int) (topOpponentsCount: int) : StrategicOpponentsResult option =
     let playersArray = players |> Array.ofSeq
     
@@ -1007,9 +1212,9 @@ let findStrategicOpponents (players: Player seq) (referencePlayerId: int) (ratin
                    TopFavorableCountries = []
                    TopOpponents = [] }
         else
-            printfn "Found %d favorable countries with overrated players:" topFavorableCountries.Length
+            printfn $"Found %d{topFavorableCountries.Length} favorable countries with overrated players:"
             topFavorableCountries 
-            |> List.iter (fun ci -> printfn "  %s: %d players, avg gap: %.1f" ci.Country ci.PlayerCount ci.AvgRatingGap)
+            |> List.iter (fun ci -> printfn $"  %s{ci.Country}: %d{ci.PlayerCount} players, avg gap: %.1f{ci.AvgRatingGap}")
             
             let favorableCountries = topFavorableCountries |> List.map (fun ci -> ci.Country) |> Set.ofList
             
@@ -1084,7 +1289,12 @@ let main _ =
         // --- Age Analysis ---
         let ageGroupData = analyzePeakPerformanceAge config players
         let generationComparison = analyzeYouthVsVeterans config players
-        let prodigies = generateProdigyWatchlist config players 18 20
+        // let prodigies = generateProdigyWatchlist config players 18 20
+
+        // --- Time Control Analysis ---
+        // let (rapidSpecs, blitzSpecs, classicalSpecs) = identifyTimeControlSpecialists config players 10
+        let nationalTimeControlStats = analyzeNationalTimeControlStyles config players
+        plotTimeControlAnalysis nationalTimeControlStats
 
         // --- Strategic Opponent Analysis Example ---
         // Find a player to use as example (first player with FIDE rating > 2000)
