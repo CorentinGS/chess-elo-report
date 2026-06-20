@@ -2,6 +2,7 @@
 
 open FSharp.Data
 open XPlot.Plotly
+open System
 open System.IO
 open System.Text.Json
 
@@ -153,9 +154,26 @@ type Player =
       CountryRank: int
       GameCount: int }
 
+let private resolveInputPath (path: string) =
+    let currentDirectory = Directory.GetCurrentDirectory()
+    let projectDirectory = Path.Combine(currentDirectory, "EloAnalysis")
+
+    let candidates =
+        [ path
+          Path.Combine(AppContext.BaseDirectory, path)
+          Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", path))
+          Path.Combine(projectDirectory, path) ]
+        |> List.distinct
+
+    candidates
+    |> List.tryFind File.Exists
+    |> Option.defaultWith (fun () ->
+        let checkedPaths = String.Join(Environment.NewLine + "  - ", candidates)
+        failwith $"Could not find '{path}'. Run scripts/download-data.ps1 from the repository root, or place the file in one of:%s{Environment.NewLine}  - %s{checkedPaths}")
+
 let loadFidePlayersAsync (config: AnalysisConfig) : Async<Map<int, Player>> =
     async {
-        let fideXml = FideXml.Load(config.PlayersXmlPath)
+        let fideXml = FideXml.Load(resolveInputPath config.PlayersXmlPath)
 
         let map =
             fideXml.Players
@@ -206,7 +224,7 @@ type UrRatingData =
 
 let loadUrRatingsAsync (config: AnalysisConfig) : Async<Map<int, UrRatingData>> =
     async {
-        let urCsv = UrRatingCsv.Load(config.RatingsCsvPath)
+        let urCsv = UrRatingCsv.Load(resolveInputPath config.RatingsCsvPath)
 
         let ur =
             urCsv.Rows

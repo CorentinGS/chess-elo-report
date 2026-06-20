@@ -9,12 +9,6 @@
     <ItemGroup>
         <Compile Include="Tests.fs"/>
         <Compile Include="Program.fs"/>
-        <Content Include="players.xml">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </Content>
-        <Content Include="ratings.csv">
-            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-        </Content>
         <Content Include="players_sample.xml">
             <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </Content>

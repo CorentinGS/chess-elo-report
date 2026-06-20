@@ -3,3 +3,10 @@ obj/
 /packages/
 riderModule.iml
 /_ReSharper.Caches/
+
+# Downloaded/generated analysis data
+EloAnalysis/*.xml
+!EloAnalysis/*_sample.xml
+EloAnalysis/ratings.csv
+players_cache.json
+EloAnalysis/players_cache.json
